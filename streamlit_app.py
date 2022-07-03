@@ -1,38 +1,68 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
+from pickle import TRUE
 import streamlit as st
+from datetime import date
 
-"""
-# Welcome to Streamlit!
-
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
-
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
-
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+import yfinance as yf
+from prophet import Prophet
+from prophet.plot import plot_plotly
+from plotly import graph_objs as go
 
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+START="2019-01-01"
+TODAY="2022-01-01"
 
-    Point = namedtuple('Point', 'x y')
-    data = []
+st.title("Stock Analysis of MAANG Companies")
+stocks=("META","AAPL","AMZN","NFLX","GOOG")
+selected_stock=st.selectbox("select dataset",stocks)
 
-    points_per_turn = total_points / num_turns
+n_years=st.slider("Years for prediction:",1,4)
+period=n_years*365
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
+@st.cache
+def load_data(ticker): 
+    data=yf.download(ticker,START,TODAY)
+    data.reset_index(inplace=True)
+    return data
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+data_load_state=st.text("Load data...")
+data=load_data(selected_stock)
+data_load_state.text("Loading data...done")
+
+st.subheader('Raw Data')
+st.write(data.tail())
+
+st.subheader('To Buy or Not to Buy')
+selected_stock=str(selected_stock)
+sc=yf.Ticker(selected_stock)
+st.write(sc.recommendations.tail())
+
+def plot_raw_data():
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=data['Date'],y=data['Open'],name='stock_open'))
+    fig.add_trace(go.Scatter(x=data['Date'],y=data['Close'],name='stock_close'))
+    fig.layout.update(title_text="Time Series Data", xaxis_rangeslider_visible=True)
+    st.plotly_chart(fig)
+
+plot_raw_data()
+
+#forecasting
+
+df_train=data[['Date','Close']]
+df_train=df_train.rename(columns={"Date":"ds","Close":"y"})
+
+m=Prophet()
+m.fit(df_train)
+
+future=m.make_future_dataframe(periods=period)
+forecast=m.predict(future)
+
+st.subheader('Forecast Data')
+st.write(forecast.tail())
+
+st.write('forecast')
+fig1=plot_plotly(m,forecast)
+st.plotly_chart(fig1)
+
+st.write('forecast components')
+fig2=m.plot_components(forecast)
+st.write(fig2)
